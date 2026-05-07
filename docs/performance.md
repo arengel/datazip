@@ -3,7 +3,7 @@
 This page compares DataZip against Python's built-in `pickle` module across two
 representative workloads, measuring **write time**, **read time**, and **output file
 size**. The figures and table below were produced by running
-[`docs/benchmarks.py`](https://github.com/colectric-dev/datazip/blob/main/docs/benchmarks.py)
+[`docs/benchmarks.py`](https://github.com/arengel/datazip/blob/main/docs/benchmarks.py)
 from the repository root.
 
 ## Methodology

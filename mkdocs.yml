@@ -1,8 +1,8 @@
 site_name: DataZip
 site_description: A ZipFile extension for seamless Python object serialization
 site_author: Alex
-repo_url: https://github.com/colectric-dev/datazip
-repo_name: colectric-dev/datazip
+repo_url: https://github.com/arengel/datazip
+repo_name: arengel/datazip
 
 theme:
   name: material

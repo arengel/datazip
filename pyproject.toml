@@ -23,10 +23,10 @@ dependencies = [
 ]
 
 [project.urls]
-homepage = 'https://github.com/colectric-dev/datazip'
-source = 'https://github.com/colectric-dev/datazip'
-documentation = 'https://colectric-dev.github.io/datazip/'
-issues = 'https://github.com/colectric-dev/datazip/issues'
+homepage = 'https://github.com/arengel/datazip'
+source = 'https://github.com/arengel/datazip'
+documentation = 'https://arengel.github.io/datazip/'
+issues = 'https://github.com/arengel/datazip/issues'
 
 [project.optional-dependencies]
 dev = [

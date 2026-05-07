@@ -1,8 +1,8 @@
 # DataZip
-[![Actions status]( https://github.com/colectric-dev/datazip/workflows/CI/badge.svg)](https://github.com/colectric-dev/datazip/actions)
-[![GitHub Pages Status]( https://github.com/colectric-dev/datazip/workflows/docs/badge.svg)](https://colectric-dev.github.io/datazip/)
+[![Actions status]( https://github.com/arengel/datazip/workflows/CI/badge.svg)](https://github.com/arengel/datazip/actions)
+[![GitHub Pages Status]( https://github.com/arengel/datazip/workflows/docs/badge.svg)](https://arengel.github.io/datazip/)
 [![PyPI Latest Release](https://img.shields.io/pypi/v/datazip.svg)](https://pypi.org/project/datazip/)
-![GitHub License](https://img.shields.io/github/license/colectric-dev/datazip)
+![GitHub License](https://img.shields.io/github/license/arengel/datazip)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv
 )
@@ -57,4 +57,4 @@ with DataZip(buffer, "r") as z:
 pip install datazip
 ```
 
-See the [Installation](https://colectric-dev.github.io/datazip/installation/) page for full details including optional dependencies.
+See the [Installation](https://arengel.github.io/datazip/installation/) page for full details including optional dependencies.

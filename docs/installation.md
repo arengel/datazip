@@ -46,7 +46,7 @@ pip install datazip[dev]
 Or clone the repository and install in editable mode:
 
 ```bash
-git clone https://github.com/colectric-dev/datazip.git
+git clone https://github.com/arengel/datazip.git
 cd datazip
 pip install -e ".[dev]"
 ```
