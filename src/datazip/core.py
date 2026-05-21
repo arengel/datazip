@@ -110,15 +110,15 @@ def default_getstate(obj):
             return None
 
 
-def _decode_cache_helper(self: DataZip, obj: dict, func: Callable, **kwargs) -> Any:
-    if obj["__loc__"] in self._red:
-        return self._red[obj["__loc__"]]
-    out = func(self, obj, **kwargs)
-    self._red[obj["__loc__"]] = out
+def _decode_cache_helper(z: DataZip, obj: dict, func: Callable, **kwargs) -> Any:
+    if obj["__loc__"] in z._red:
+        return z._red[obj["__loc__"]]
+    out = func(z, obj, **kwargs)
+    z._red[obj["__loc__"]] = out
     return out
 
 
-def _encode_ignore(self: DataZip, name: str, item):
+def _encode_ignore(z: DataZip, name: str, item):
     LOGGER.warning("%s of type %s will not be encoded", name, type(item))
     return "__IGNORE__"
 

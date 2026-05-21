@@ -282,8 +282,7 @@ DataZip.register_coders(
 )
 ```
 
-`alt_name` accepts either a single string or a tuple — useful when migrating
-across multiple historical names.
+`alt_name` accepts either a single string or a tuple.
 
 ### When to Reach for `register_coders`
 
