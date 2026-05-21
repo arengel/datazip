@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "datazip"
 dynamic = [ "version" ]
-description = "Seamless serialization and deserialization of complex Python objects — a more flexible and readable alternative to pickle for data science workflows."
+description = "Seamless serialization and deserialization of complex Python objects — a more portable and readable alternative to pickle for data-heavy workflows."
 readme = "README.md"
 authors = [
     { name = "Alex Engel", email = "alex@colectric.com" }

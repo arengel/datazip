@@ -181,6 +181,122 @@ When serializing, DataZip checks for state methods in this order:
 2. `__getstate__` / `__setstate__` (standard pickle protocol)
 3. Automatic `__dict__` / `__slots__` inspection
 
+## Extending DataZip with Custom Coders
+
+For types that DataZip doesn't support out of the box — or that don't round-trip
+cleanly through the default `__getstate__`/`__setstate__` protocol — you can
+register a pair of encoder/decoder functions with
+[`DataZip.register_coders`][datazip.core.DataZip.register_coders]. This is the
+same mechanism DataZip uses internally to add support for NumPy, pandas, Polars,
+and Plotly when those libraries are installed.
+
+### The Coder Contract
+
+- **Encoder** signature: `encoder(self, name, item) -> JSONABLE`
+    - `self` is the open `DataZip` instance (useful if you need to write a
+      side-car file via `self._encode_loc_helper`).
+    - `name` is the key the object is being stored under — handy when naming
+      side-car files.
+    - `item` is the object to encode.
+    - Returns a JSON-able value. For non-primitive types, return a `dict` that
+      contains a `"__type__"` key matching the `name` you registered the
+      decoder under.
+- **Decoder** signature: `decoder(self, obj) -> Any`
+    - `obj` is the dict produced by the encoder.
+    - Returns the reconstructed object.
+
+### Registering Coders for a New Type
+
+The simplest case is a type whose state can be captured as a string or other
+JSON-able value. For example, [`decimal.Decimal`][decimal.Decimal] doesn't
+round-trip with the default state protocol, but it has a trivial string
+representation:
+
+```python
+from decimal import Decimal
+from io import BytesIO
+from datazip import DataZip
+
+
+def encode_decimal(z, name, item):
+    return {"__type__": "Decimal", "items": str(item)}
+
+
+def decode_decimal(z, obj):
+    return Decimal(obj["items"])
+
+
+DataZip.register_coders(Decimal, "Decimal", encode_decimal, decode_decimal)
+
+buffer = BytesIO()
+with DataZip(buffer, "w") as z:
+    z["pi"] = Decimal("3.14159")
+
+with DataZip(buffer, "r") as z:
+    assert z["pi"] == Decimal("3.14159")
+```
+
+### Storing Larger Payloads as Side-Car Files
+
+When the object is bulky (a tensor, an image, a parquet-friendly table, ...),
+it's usually better to write the payload to its own file inside the archive
+rather than inlining it in the JSON attributes. Use
+`self._encode_loc_helper(filename, data, bytes_)` from the encoder; it picks a
+unique name inside the zip, writes the bytes, and returns the resolved name to
+store under `"__loc__"`. The decoder then reads it back with `self.read(...)`.
+
+```python
+import numpy as np
+from io import BytesIO
+
+
+def encode_ndarray(z, name, data):
+    np.save(buf := BytesIO(), data, allow_pickle=False)
+    return {
+        "__type__": "ndarray",
+        "__loc__": z.encode_loc_helper(f"{name}.npy", data, buf.getvalue()),
+    }
+
+
+def decode_ndarray(z, obj):
+    return np.load(BytesIO(z.read(obj["__loc__"])))
+
+
+DataZip.register_coders(np.ndarray, "ndarray", encode_ndarray, decode_ndarray)
+```
+
+This is exactly how the bundled NumPy support is implemented.
+
+### Backwards-Compatible `__type__` Names
+
+If you ever change the `name` that an encoder writes, pass the old identifier
+as `alt_name` so existing archives still decode:
+
+```python
+DataZip.register_coders(
+    MyType,
+    "MyType",                  # new identifier the encoder writes today
+    encode_mytype,
+    decode_mytype,
+    alt_name="my_legacy_name", # also dispatches archives written under the old name
+)
+```
+
+`alt_name` accepts either a single string or a tuple — useful when migrating
+across multiple historical names.
+
+### When to Reach for `register_coders`
+
+Prefer the [custom-class options above](#custom-classes) (automatic state,
+`__getstate__`/`__setstate__`, or `_dzgetstate_`/`_dzsetstate_`) when you own
+the class. Reach for `register_coders` when:
+
+- The type is owned by a third-party library you can't modify.
+- The default state protocol doesn't preserve enough information (e.g.
+  `Decimal`).
+- You want to store the payload in a format other than JSON — for example,
+  Parquet, `.npy`, or a pickled binary blob in its own side-car file.
+
 ## Object Deduplication
 
 By default, DataZip tracks object identities to avoid storing the same object multiple times. This means multiple references to the same object are deduplicated:

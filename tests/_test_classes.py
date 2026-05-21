@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from datazip._optional import pandas as pd
+from tests._optional import pandas as pd
 
 
 class ObjMeta(NamedTuple):

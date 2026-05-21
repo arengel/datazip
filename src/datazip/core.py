@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import getpass
 import logging
-import pickle
 import warnings
 from collections import Counter, OrderedDict, defaultdict, deque
 from collections.abc import KeysView
 from datetime import datetime
 from functools import partial
+from importlib import import_module
 from io import BytesIO
 from pathlib import Path, PosixPath, WindowsPath
 from types import NoneType
@@ -19,19 +20,6 @@ from zoneinfo import ZoneInfo
 import orjson as json
 
 from datazip import __version__
-from datazip._optional import numpy as np
-from datazip._optional import pandas as pd
-from datazip._optional import plotly, sqlalchemy
-from datazip._optional import polars as pl
-from datazip._utils import (
-    _get_klass,
-    _get_username,
-    _get_version,
-    _objinfo,
-    _quote_strip,
-    default_getstate,
-    default_setstate,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -40,6 +28,99 @@ if TYPE_CHECKING:
     JSONABLE = float | int | dict | list | str | bool | None
 
 LOGGER = logging.getLogger("datazip")
+
+
+def _quote_strip(string: str) -> str:
+    return string.replace("'", "").replace('"', "")
+
+
+def _get_version(obj: Any) -> str:
+    mod = import_module(obj.__class__.__module__.partition(".")[0])
+    for v_attr in ("__version__", "version", "release"):
+        if hasattr(mod, v_attr):
+            return getattr(mod, v_attr)
+    return "unknown"
+
+
+def _get_username():
+    try:
+        return getpass.getuser()
+    except (ModuleNotFoundError, OSError) as exc0:
+        import os
+
+        try:
+            return os.getlogin()
+        except Exception as exc1:
+            LOGGER.error("No username %r from %r", exc1, exc0)
+            return "unknown"
+
+
+def _objinfo(obj: Any) -> str:
+    return obj.__class__.__module__ + "|" + obj.__class__.__qualname__
+
+
+def _get_klass(mod_klass: str | list | tuple):
+
+    if isinstance(mod_klass, str):
+        mod_klass = mod_klass.split("|")
+    try:
+        mod, qname, *_ = mod_klass
+        klass: type = getattr(import_module(mod), qname)
+    except (AttributeError, ModuleNotFoundError) as exc:
+        raise ImportError(f"Unable to import {qname} from {mod}.") from exc
+    else:
+        return klass
+
+
+def default_setstate(obj, state):
+    """Called if no `__setstate__` implementation."""
+    if state is None:
+        pass
+    elif isinstance(state, dict):
+        obj.__dict__ = state
+    elif isinstance(state, tuple):
+        d_state, s_state = state
+        if d_state is not None:
+            obj.__dict__ = d_state
+        for k, v in s_state.items():
+            setattr(obj, k, v)
+
+
+def default_getstate(obj):
+    """Called if no `__getstate__` implementation."""
+
+    def slots_dict(_slots):
+        sout = {}
+        for k in _slots:
+            if k != "__dict__":
+                try:  # noqa: SIM105
+                    sout.update({k: getattr(obj, k)})
+                except AttributeError:
+                    pass
+        return sout
+
+    match obj:
+        case object(__dict__=d_state, __slots__=slots):
+            return d_state.copy(), slots_dict(slots)
+        case object(__dict__=d_state):
+            return d_state.copy()
+        case object(__slots__=slots):
+            return None, slots_dict(slots)
+        case _:
+            return None
+
+
+def _decode_cache_helper(self: DataZip, obj: dict, func: Callable, **kwargs) -> Any:
+    if obj["__loc__"] in self._red:
+        return self._red[obj["__loc__"]]
+    out = func(self, obj, **kwargs)
+    self._red[obj["__loc__"]] = out
+    return out
+
+
+def _encode_ignore(self: DataZip, name: str, item):
+    LOGGER.warning("%s of type %s will not be encoded", name, type(item))
+    return "__IGNORE__"
 
 
 class DataZip(ZipFile):
@@ -195,10 +276,16 @@ class DataZip(ZipFile):
             Create an object that you would like to save as a
             [DataZip][datazip.core.DataZip].
 
-            >>> from datazip._test_classes import _TestKlass
-            >>> obj = _TestKlass(a=5, b={"c": [2, 3.5]})
+            >>> class Foo:
+            ...     def __init__(self, a, b):
+            ...         self.a = a
+            ...         self.b = b
+            ...
+            ...     def __repr__(self):
+            ...         return f"Foo(a={self.a}, b={self.b})"
+            >>> obj = Foo(a=5, b={"c": [2, 3.5]})
             >>> obj
-            _TestKlass(a=5, b={'c': [2, 3.5]})
+            Foo(a=5, b={'c': [2, 3.5]})
 
             Save the object as a [DataZip][datazip.core.DataZip].
 
@@ -208,9 +295,9 @@ class DataZip(ZipFile):
 
             Get it back.
 
-            >>> obj = DataZip.load(buffer)
-            >>> obj
-            _TestKlass(a=5, b={'c': [2, 3.5]})
+            >>> obj = DataZip.load(buffer, Foo)  # doctest: +SKIP
+            >>> obj  # doctest: +SKIP
+            Foo(a=5, b={'c': [2, 3.5]})
         """
         with DataZip(file, "w", **kwargs) as self:
             self["state"] = obj
@@ -453,18 +540,143 @@ class DataZip(ZipFile):
         """Set of names in [DataZip][datazip.core.DataZip] as if it was a `dict`."""
         return KeysView(set(self._attributes) - {"__state__"})
 
+    @classmethod
+    def register_coders(
+        cls,
+        type_,
+        name,
+        encoder: Callable,
+        decoder: Callable | None = None,
+        alt_name: str | tuple | None = None,
+    ):
+        """Register custom encoder and decoder functions for a specific type.
+
+        This class method allows registration of custom encoding and decoding
+        functions that will be used to serialize and deserialize objects of a
+        specified type. The encoder is mapped to the type itself, while the
+        decoder is mapped to one or more string names that identify the encoded
+        format.
+
+        Encoders are called with `(self, name, item)` and must return a JSON-able
+        value. For non-primitive types this is typically a `dict` containing a
+        `"__type__"` key whose value matches `name`. Decoders are called with
+        `(self, obj)`, where `obj` is the dict produced by the encoder, and must
+        return the reconstructed object.
+
+        Args:
+            type_: The type/class for which the encoder should be registered.
+            name: Primary name identifier for the decoder. The encoder must set
+                `__type__` to this value so the matching decoder can be found.
+            encoder: Function to encode objects of the specified type.
+            decoder: Function to decode data back to the original type.
+            alt_name: Alternative name(s) for the decoder, can be a single
+                string or tuple of strings. Useful for backwards compatibility
+                with older `__type__` identifiers.
+
+        Returns:
+            None
+
+        Examples:
+            By default, [`decimal.Decimal`][decimal.Decimal] does not round-trip
+            cleanly through [DataZip][datazip.core.DataZip] because its default
+            state representation is not preserved. We can teach
+            [DataZip][datazip.core.DataZip] how to handle it by registering a pair
+            of coders.
+
+            >>> from decimal import Decimal
+            >>> def encode_decimal(z, name, item):
+            ...     return {"__type__": "Decimal", "items": str(item)}
+            >>> def decode_decimal(z, obj):
+            ...     return Decimal(obj["items"])
+            >>> DataZip.register_coders(
+            ...     Decimal, "Decimal", encode_decimal, decode_decimal
+            ... )
+
+            Once registered, [`Decimal`][decimal.Decimal] values can be stored and
+            retrieved like any built-in type.
+
+            >>> buffer = BytesIO()
+            >>> with DataZip(buffer, "w") as z:
+            ...     z["pi"] = Decimal("3.14159")
+            >>> with DataZip(buffer, "r") as z:
+            ...     z["pi"]
+            Decimal('3.14159')
+        """
+        cls.ENCODERS[type_] = encoder
+        if decoder is not None:
+            cls.DECODERS[name] = decoder
+            if alt_name is not None:
+                cls.DECODERS[alt_name] = decoder
+
+    def encode_loc_helper(self, name: str, data: Any, to_write: Any) -> str:
+        """Write raw bytes to the zip under a unique name and record dedup info.
+
+        This is the low-level helper that custom encoders call to attach a
+        side-car file (e.g. `.parquet`, `.npy`, `.pkl`) to a
+        [DataZip][datazip.core.DataZip] archive. If `name` is already taken
+        inside the zip, a numeric prefix is added until a free name is found.
+        The returned name should be stored in the encoded `dict` under
+        `"__loc__"` so the matching decoder can call `self.read(...)` to
+        load the payload back.
+
+        The `data` argument's `id()` is recorded so that repeated references to
+        the same Python object (across multiple keys) reuse a single side-car
+        file — this is what powers DataZip's object deduplication for non-JSON
+        types.
+
+        Args:
+            name: Desired filename inside the zip (e.g. `"my_array.npy"`).
+            data: The original Python object being encoded. Its identity is
+                used for deduplication and is not written to the archive.
+            to_write: The bytes (or buffer) to write into the archive.
+
+        Returns:
+            The actual name used inside the zip. Equal to `name` if it was
+            unused, or a prefixed variant such as `"0_my_array.npy"` if
+            `name` was already taken.
+
+        Examples:
+            Open a DataZip in write mode and stash some bytes under a chosen
+            filename. The first write keeps the name as-is.
+
+            >>> buffer = BytesIO()
+            >>> z = DataZip(buffer, "w")
+            >>> z.encode_loc_helper("payload.bin", object(), b"hello")
+            'payload.bin'
+
+            Writing again under the same name yields a uniquely prefixed
+            variant instead of overwriting the existing entry, so both
+            payloads coexist in the archive.
+
+            >>> z.encode_loc_helper("payload.bin", object(), b"world")
+            '0_payload.bin'
+            >>> sorted(z.namelist())
+            ['0_payload.bin', 'payload.bin']
+            >>> z.close()
+
+            A custom encoder typically uses this helper like so, storing the
+            returned name under ``"__loc__"`` for the decoder to find:
+
+            >>> def encode_bytes(z, name, item):
+            ...     return {
+            ...         "__type__": "raw_bytes",
+            ...         "__loc__": z.encode_loc_helper(f"{name}.bin", item, item),
+            ...     }
+        """
+        i = 0
+        new_name = name
+        while new_name in self.namelist():
+            new_name = f"{i}_{name}"
+            i += 1
+        self.writestr(new_name, to_write)
+        self._ids[(id(data), type(data))] = new_name
+        return new_name
+
     def _decode(self, obj: Any) -> Any:
         """Entry point for decoding anything."""
         if decoder := self.DECODERS.get(type(obj), None):
             return decoder(self, obj)
         raise TypeError(f"no decoder for {type(obj)} {obj}")
-
-    def _decode_cache_helper(self, obj: dict, func, **kwargs) -> Any:
-        if obj["__loc__"] in self._red:
-            return self._red[obj["__loc__"]]
-        out = func(self, obj, **kwargs)
-        self._red[obj["__loc__"]] = out
-        return out
 
     def _decode_dict(self, obj: dict) -> Any:
         if "__type__" in obj:
@@ -478,15 +690,6 @@ class DataZip(ZipFile):
         except Exception as exc:
             LOGGER.error("Namedtuple will be returned as a normal tuple, %r", exc)
             return tuple(obj["items"].values())
-
-    def _decode_pd_df(self, obj) -> pd.DataFrame:
-        return pd.read_parquet(BytesIO(self.read(obj["__loc__"])))
-
-    def _decode_pd_series(self, obj) -> pd.Series:
-        out = pd.read_parquet(BytesIO(self.read(obj["__loc__"]))).squeeze()
-        cols, _names = obj.get("no_pqt_cols", (None, None))
-        out.name = tuple(cols) if isinstance(cols, list) else cols
-        return out
 
     def _decode_obj(self, obj, klass=None) -> Any:
         if obj["__loc__"] in self._red:
@@ -529,39 +732,8 @@ class DataZip(ZipFile):
         "deque": lambda self, obj: deque([self._decode(v) for v in obj["items"]]),
         "OrderedDict": lambda self, obj: OrderedDict(self._decode_dict(obj["items"])),
         "datetime": lambda _, obj: datetime.fromisoformat(_quote_strip(obj["items"])),
-        "pdTimestamp": lambda _, obj: pd.Timestamp(_quote_strip(obj["items"])),
         "Path": lambda _, obj: Path(_quote_strip(obj["items"])),
         "namedtuple": _decode_namedtuple,
-        "pdDataFrame": partial(_decode_cache_helper, func=_decode_pd_df),
-        "pdSeries": partial(_decode_cache_helper, func=_decode_pd_series),
-        "ndarray": partial(
-            _decode_cache_helper,
-            func=lambda self, obj: np.load(BytesIO(self.read(obj["__loc__"]))),
-        ),
-        "saEngine": lambda _, obj: sqlalchemy.create_engine(obj["items"]["url"]),
-        "plDataFrame": partial(
-            _decode_cache_helper,
-            func=lambda self, obj: pl.read_parquet(
-                BytesIO(self.read(obj["__loc__"])), use_pyarrow=True
-            ),
-        ),
-        "plLazyFrame": partial(
-            _decode_cache_helper,
-            func=lambda self, obj: pl.read_parquet(
-                BytesIO(self.read(obj["__loc__"])), use_pyarrow=True
-            ).lazy(),
-        ),
-        "plSeries": partial(
-            _decode_cache_helper,
-            func=lambda self, obj: (
-                pl.read_parquet(BytesIO(self.read(obj["__loc__"])), use_pyarrow=True)
-                .to_series()
-                .alias(obj["col_name"])
-            ),
-        ),
-        "pgoFigure": lambda self, obj: pickle.load(  # noqa: S301
-            BytesIO(self.read(obj["__loc__"]))
-        ),
         # LEGACY type encoding
         ("builtins", "tuple", None): lambda self, obj: tuple(
             self._decode(v) for v in obj["items"]
@@ -569,16 +741,6 @@ class DataZip(ZipFile):
         ("builtins", "set", None): lambda _, obj: set(obj["items"]),
         ("builtins", "frozenset", None): lambda _, obj: frozenset(obj["items"]),
         ("builtins", "complex", None): lambda _, obj: complex(*obj["items"]),
-        ("pandas.core.frame", "DataFrame", None): partial(
-            _decode_cache_helper, func=_decode_pd_df
-        ),
-        ("pandas.core.series", "Series", None): partial(
-            _decode_cache_helper, func=_decode_pd_series
-        ),
-        ("numpy", "ndarray", None): partial(
-            _decode_cache_helper,
-            func=lambda self, obj: np.load(BytesIO(self.read(obj["__loc__"]))),
-        ),
     }
 
     def _encode(self, name, item) -> JSONABLE:
@@ -595,16 +757,6 @@ class DataZip(ZipFile):
             return {"__type__": _objinfo(item), "__loc__": loc}
         return self._encode_obj(name, item)
 
-    def _encode_loc_helper(self, name: str, data: Any, to_write: Any) -> str:
-        i = 0
-        new_name = name
-        while new_name in self.namelist():
-            new_name = f"{i}_{name}"
-            i += 1
-        self.writestr(new_name, to_write)
-        self._ids[(id(data), type(data))] = new_name
-        return new_name
-
     def _encode_dict(self, _, data: dict) -> dict:
         # we need to encode the dict differently if any keys are not int | str
         if set(map(type, data.keys())) - {str}:
@@ -617,77 +769,6 @@ class DataZip(ZipFile):
             k: v
             for k, v in {k_: self._encode(k_, v_) for k_, v_ in data.items()}.items()
             if v != "__IGNORE__"
-        }
-
-    def _encode_pd_df(self, name: str, df: pd.DataFrame, **kwargs) -> dict:
-        """Write a df in the ZIP as parquet."""
-        if self._ids_for_dedup and (loc := self._ids.get((id(df), type(df)), None)):
-            return {"__type__": "pdDataFrame", "__loc__": loc}
-        try:
-            return {
-                "__type__": "pdDataFrame",
-                "__loc__": self._encode_loc_helper(
-                    f"{name}.parquet", df, df.to_parquet()
-                ),
-            }
-        except Exception as exc:
-            dt = df.dtypes.to_string().replace("\n", "\n\t")
-            raise TypeError(
-                f"Unable to write {type(df)} '{name}' as parquet with types\n {dt}"
-            ) from exc
-
-    def _encode_pd_series(self, name: str, df: pd.Series, **kwargs) -> dict:
-        if self._ids_for_dedup and (loc := self._ids.get((id(df), type(df)), None)):
-            return {"__type__": "pdSeries", "__loc__": loc}
-        return {
-            "__type__": "pdSeries",
-            "__loc__": self._encode_loc_helper(
-                f"{name}.parquet", df, df.to_frame().to_parquet()
-            ),
-            "no_pqt_cols": [
-                list(df.name) if isinstance(df.name, tuple) else df.name,
-                None,
-            ],
-        }
-
-    def _encode_pl_df(self, name: str, df: pl.DataFrame, **kwargs) -> dict:
-        """Write a polars df in the ZIP as parquet."""
-        if self._ids_for_dedup and (loc := self._ids.get((id(df), type(df)), None)):
-            return {"__type__": "plDataFrame", "__loc__": loc}
-        df.write_parquet(temp := BytesIO())
-        return {
-            "__type__": "plDataFrame",
-            "__loc__": self._encode_loc_helper(f"{name}.parquet", df, temp.getvalue()),
-        }
-
-    def _encode_pl_ldf(self, name: str, df: pl.LazyFrame, **kwargs) -> dict:
-        """Write a polars df in the ZIP as parquet."""
-        if self._ids_for_dedup and (loc := self._ids.get((id(df), type(df)), None)):
-            return {"__type__": "plLazyFrame", "__loc__": loc}
-        df.collect().write_parquet(temp := BytesIO())
-        return {
-            "__type__": "plLazyFrame",
-            "__loc__": self._encode_loc_helper(f"{name}.parquet", df, temp.getvalue()),
-        }
-
-    def _encode_pl_series(self, name: str, df: pl.Series, **kwargs) -> dict:
-        """Write a polars series in the ZIP as parquet."""
-        if self._ids_for_dedup and (loc := self._ids.get((id(df), type(df)), None)):
-            return {"__type__": "plSeries", "__loc__": loc}
-        df.to_frame("IGNORE").write_parquet(temp := BytesIO())
-        return {
-            "__type__": "plSeries",
-            "__loc__": self._encode_loc_helper(f"{name}.parquet", df, temp.getvalue()),
-            "col_name": df.name,
-        }
-
-    def _encode_ndarray(self, name: str, data: np.ndarray, **kwargs) -> dict:
-        if self._ids_for_dedup and (loc := self._ids.get((id(data), type(data)), None)):
-            return {"__type__": "ndarray", "__loc__": loc}
-        np.save(temp := BytesIO(), data, allow_pickle=False)
-        return {
-            "__type__": "ndarray",
-            "__loc__": self._encode_loc_helper(f"{name}.npy", data, temp.getvalue()),
         }
 
     def _encode_obj(self, name: str, item: Any) -> dict:
@@ -714,10 +795,6 @@ class DataZip(ZipFile):
             "__created_by__": _get_username(),
             "__file_created__": str(datetime.now(tz=ZoneInfo("UTC"))),
         }
-
-    def _encode_ignore(self, name, item):
-        LOGGER.warning("%s of type %s will not be encoded", name, type(item))
-        return "__IGNORE__"
 
     ENCODERS: ClassVar[dict[type, Callable]] = {
         str: lambda _, __, item: item,
@@ -765,28 +842,11 @@ class DataZip(ZipFile):
             "items": self._encode_dict(__, item),
         },
         datetime: lambda _, __, item: {"__type__": "datetime", "items": str(item)},
-        pd.Timestamp: lambda _, __, item: {
-            "__type__": "pdTimestamp",
-            "items": str(item),
-        },
         Path: lambda _, __, item: {"__type__": "Path", "items": str(item)},
         PosixPath: lambda _, __, item: {"__type__": "Path", "items": str(item)},
         WindowsPath: lambda _, __, item: {"__type__": "Path", "items": str(item)},
-        np.ndarray: _encode_ndarray,
-        np.float64: lambda _, __, item: float(item),
-        np.int64: lambda _, __, item: int(item),
-        pd.DataFrame: _encode_pd_df,
-        pd.Series: _encode_pd_series,
-        plotly.graph_objects.Figure: lambda self, name, item: {
-            "__type__": "pgoFigure",
-            "__loc__": self._encode_loc_helper(f"{name}.pkl", item, pickle.dumps(item)),
-        },
-        pl.DataFrame: _encode_pl_df,
-        pl.LazyFrame: _encode_pl_ldf,
-        pl.Series: _encode_pl_series,
         # things to ignore
         partial: _encode_ignore,
-        sqlalchemy.engine.Engine: _encode_ignore,
     }
 
     def _load_legacy_helper(self) -> dict:

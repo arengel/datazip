@@ -13,10 +13,11 @@ from zipfile import ZipFile
 
 import pytest
 
-from datazip._optional import numpy as np
-from datazip._optional import pandas as pd
-from datazip._optional import polars as pl
-from datazip._test_classes import (
+from datazip.core import DataZip, default_getstate, default_setstate
+from tests._optional import numpy as np
+from tests._optional import pandas as pd
+from tests._optional import polars as pl
+from tests._test_classes import (
     ObjMeta,
     _KlassSlots,
     _KlassSlotsDzstate,
@@ -26,8 +27,6 @@ from datazip._test_classes import (
     _TestKlassSlotsCore,
     _TestKlassSlotsDict,
 )
-from datazip._utils import default_getstate, default_setstate
-from datazip.core import DataZip
 from tests.conftest import assert_equal, idfn
 
 

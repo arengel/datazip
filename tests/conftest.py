@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from datazip._optional import numpy as np
-from datazip._optional import pandas as pd
-from datazip._optional import polars as pl
+from tests._optional import numpy as np
+from tests._optional import pandas as pd
+from tests._optional import polars as pl
 
 logger = logging.getLogger(__name__)
 

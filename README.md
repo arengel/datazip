@@ -19,6 +19,7 @@
 - **Lazy loading**: Objects and data are only deserialized when they are accessed, allowing efficient loading of objects within huge files. Nested access avoids deserialzing unnecessary enclosing objects.
 - **No pickle by default**: Most types are serialized without pickle, making files safer and more portable.
 - **Custom class integration**: Any class that implements `__getstate__`/`__setstate__` (the standard pickle protocol) works automatically. The `IOMixin` makes it even simpler.
+- **Pluggable type support**: Teach DataZip how to handle any third-party or stdlib type by registering encoder/decoder pairs with `DataZip.register_coders`. The bundled NumPy, pandas, Polars, and Plotly integrations are themselves built on this hook — see the [User Guide](https://arengel.github.io/datazip/user-guide/#extending-datazip-with-custom-coders) for details.
 
 ## Quick Example
 
