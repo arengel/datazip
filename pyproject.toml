@@ -30,7 +30,7 @@ issues = 'https://github.com/arengel/datazip/issues'
 
 [project.optional-dependencies]
 dev = [
-    "coverage>=5.3",  # Lets us track what code is being tested
+    "coverage>=7.14.0",  # Lets us track what code is being tested
     "pytest>=6.2",  # test framework
 ]
 docs = [
