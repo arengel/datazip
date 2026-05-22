@@ -10,7 +10,6 @@ from collections.abc import KeysView
 from datetime import datetime
 from functools import partial
 from importlib import import_module
-from io import BytesIO
 from pathlib import Path, PosixPath, WindowsPath
 from types import NoneType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -23,6 +22,7 @@ from datazip import __version__
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
+    from io import BytesIO
     from os import PathLike
 
     JSONABLE = float | int | dict | list | str | bool | None
@@ -141,8 +141,7 @@ class DataZip(ZipFile):
         file: str | PathLike | BytesIO,
         mode: Literal["r", "w"] = "r",
         *args,
-        ids_for_dedup=True,
-        ignore_pd_dtypes=False,
+        ids_for_dedup: bool = True,
         **kwargs,
     ):
         """Create a DataZip.
@@ -151,7 +150,6 @@ class DataZip(ZipFile):
             file: Either the path to the file, or a file-like object.
                 If it is a path, the file will be opened and closed by DataZip.
             mode: The mode can be either read 'r', or write 'w'.
-            recipes: Deprecated.
             compression: ZIP_STORED (no compression), ZIP_DEFLATED (requires zlib),
                 ZIP_BZIP2 (requires bz2) or ZIP_LZMA (requires lzma).
             args: additional positional will be passed to
@@ -162,7 +160,6 @@ class DataZip(ZipFile):
                 but because ids are not unique for objects with non-overlapping
                 lifetimes, setting to True can result in subsequent new objects NOT
                 being stored because they share an id with an earlier object.
-            ignore_pd_dtypes: Ignored.
             kwargs: keyword arguments will be passed to
                 `zipfile.ZipFile.__init__`.
 
@@ -172,6 +169,7 @@ class DataZip(ZipFile):
             would be a `pathlib.Path` or `str` that represents a file. In these cases
             a `.zip` extension will be added if it is not there already.
 
+            >>> from io import BytesIO
             >>> buffer = BytesIO()  # can also be a file-like object
             >>> with DataZip(file=buffer, mode="w") as z0:
             ...     z0["foo"] = {
@@ -201,7 +199,7 @@ class DataZip(ZipFile):
             1
 
             When not used with a context manager, [DataZip][datazip.core.DataZip] should
-            close itself automatically but it's not a bad idea to make sure.
+            close itself automatically, but it's not a bad idea to make sure.
 
             >>> z1.close()
 
@@ -210,17 +208,9 @@ class DataZip(ZipFile):
             [DataZip][datazip.core.DataZip] can be done with the
             [DataZip.replace][datazip.core.DataZip.replace] method.
 
-            >>> buffer1 = BytesIO()
-            >>> with DataZip.replace(buffer1, buffer, foo=5, bar=6) as z:
-            ...     z["new"] = "foo"
-            ...     z["foo"]
-            5
         """
         if mode in ("a", "x"):
             raise ValueError("DataZip does not support modes 'a' or 'x'")
-
-        # if isinstance(file, str):
-        #     file = Path(file)
 
         clobber = kwargs.pop("clobber", False)
         if isinstance(file, Path):
@@ -235,7 +225,6 @@ class DataZip(ZipFile):
                     )
 
         super().__init__(file, mode, *args, **kwargs)
-        self._ignore_pd_dtypes = ignore_pd_dtypes
         self._attributes, self._metadata = {"__state__": {}}, {"__rev__": 2}
         self._ids_for_dedup = ids_for_dedup
         self._ids, self._red = {}, {}
@@ -288,7 +277,7 @@ class DataZip(ZipFile):
             Foo(a=5, b={'c': [2, 3.5]})
 
             Save the object as a [DataZip][datazip.core.DataZip].
-
+            >>> from io import BytesIO
             >>> buffer = BytesIO()
             >>> DataZip.dump(obj, buffer)
             >>> del obj
@@ -330,9 +319,9 @@ class DataZip(ZipFile):
     @classmethod
     def replace(
         cls,
-        file_or_new_buffer: str | PathLike | BytesIO,
-        old_buffer: BytesIO | None = None,
-        save_old=False,  # noqa: FBT002
+        file: str | PathLike,
+        *,
+        save_old: bool = False,
         iterwrap=None,
         **kwargs,
     ):
@@ -343,9 +332,8 @@ class DataZip(ZipFile):
         exist in the old [DataZip][datazip.core.DataZip].
 
         Args:
-            file_or_new_buffer: Either the path to the file to be replaced
+            file: Either the path to the file to be replaced
                 or the new buffer.
-            old_buffer: only required if `file_or_new_buffer` is a buffer.
             save_old: if True, the old [DataZip][datazip.core.DataZip] will be
                 saved with "_old" appended, if False it will be
                 deleted when the new [DataZip][datazip.core.DataZip] is closed.
@@ -380,7 +368,7 @@ class DataZip(ZipFile):
 
             >>> z1["foo"] = "bar"
 
-            While the replacement is open, the old verion still exists.
+            While the replacement is open, the old version still exists.
 
             >>> (Path.home() / "test_old.zip").exists()
             True
@@ -406,37 +394,27 @@ class DataZip(ZipFile):
             >>> z2.close()
             >>> file.unlink()
         """
-        if isinstance(file_or_new_buffer, BytesIO) and not isinstance(
-            old_buffer, BytesIO
-        ):
-            raise TypeError(
-                "If file_or_new_buffer is BytesIO, then old_buffer must be as well."
-            )
-
         _to_delete = None
-        if isinstance(file_or_new_buffer, str):
-            file_or_new_buffer = Path(file_or_new_buffer)
-
-        if isinstance(file_or_new_buffer, Path):
-            file_or_new_buffer = file_or_new_buffer.with_suffix(".zip")
-            old_buffer = Path(
-                str(file_or_new_buffer).removesuffix(".zip") + "_old"
-            ).with_suffix(".zip")
-            file_or_new_buffer.rename(old_buffer)
-            if not save_old:
-                _to_delete = old_buffer
-
-        self = cls(file_or_new_buffer, "w")
+        if not isinstance(file, Path):
+            file = Path(file)
         if iterwrap is None:
             iterwrap = iter
-        with DataZip(old_buffer, "r") as z:
+
+        file: Path = file.with_suffix(".zip")
+        old_file = file.with_stem(file.stem + "_old")
+        file.rename(old_file)
+        if not save_old:
+            _to_delete = old_file
+
+        self = cls(file, "w")
+        with DataZip(old_file, "r") as z:
             if z._metadata.get("__rev__") != 2:
                 _to_delete = None
                 LOGGER.warning(
                     "%s uses an old version of DataZip so not all data may be properly "
                     "copied over. For this reason, %s will not be deleted.",
-                    file_or_new_buffer,
-                    old_buffer,
+                    file,
+                    old_file,
                 )
             for k, v in iterwrap(z.items()):
                 if k in kwargs:
@@ -466,7 +444,7 @@ class DataZip(ZipFile):
         if isinstance(self._delete_on_close, Path):
             self._delete_on_close.unlink()
 
-    def __contains__(self, item) -> bool:
+    def __contains__(self, item: str) -> bool:
         """Provide `in` check."""
         return item.partition(".")[0] in self._attributes
 
@@ -485,6 +463,7 @@ class DataZip(ZipFile):
             Data associated with key
 
         Examples:
+            >>> from io import BytesIO
             >>> with DataZip(BytesIO(), mode="w") as z0:
             ...     z0["foo"] = {"a": [{"c": 5}]}
             ...     z0["foo", "a", 0, "c"]
@@ -543,8 +522,8 @@ class DataZip(ZipFile):
     @classmethod
     def register_coders(
         cls,
-        type_,
-        name,
+        type_: type,
+        name: str,
         encoder: Callable,
         decoder: Callable | None = None,
         alt_name: str | tuple | None = None,
@@ -595,6 +574,7 @@ class DataZip(ZipFile):
             Once registered, [`Decimal`][decimal.Decimal] values can be stored and
             retrieved like any built-in type.
 
+            >>> from io import BytesIO
             >>> buffer = BytesIO()
             >>> with DataZip(buffer, "w") as z:
             ...     z["pi"] = Decimal("3.14159")
@@ -608,7 +588,7 @@ class DataZip(ZipFile):
             if alt_name is not None:
                 cls.DECODERS[alt_name] = decoder
 
-    def encode_loc_helper(self, name: str, data: Any, to_write: Any) -> str:
+    def encode_loc_helper(self, name: str, data: Any, to_write: bytes) -> str:
         """Write raw bytes to the zip under a unique name and record dedup info.
 
         This is the low-level helper that custom encoders call to attach a
@@ -639,6 +619,7 @@ class DataZip(ZipFile):
             Open a DataZip in write mode and stash some bytes under a chosen
             filename. The first write keeps the name as-is.
 
+            >>> from io import BytesIO
             >>> buffer = BytesIO()
             >>> z = DataZip(buffer, "w")
             >>> z.encode_loc_helper("payload.bin", object(), b"hello")
@@ -684,14 +665,14 @@ class DataZip(ZipFile):
         return {k: self._decode(v) for k, v in obj.items()}
 
     @staticmethod
-    def _decode_namedtuple(_, obj):
+    def _decode_namedtuple(_, obj: dict):
         try:
             return _get_klass(obj["objinfo"])(**obj["items"])
         except Exception as exc:
             LOGGER.error("Namedtuple will be returned as a normal tuple, %r", exc)
             return tuple(obj["items"].values())
 
-    def _decode_obj(self, obj, klass=None) -> Any:
+    def _decode_obj(self, obj: dict, klass=None) -> Any:
         if obj["__loc__"] in self._red:
             return self._red[obj["__loc__"]]
         if klass is None:
@@ -743,7 +724,7 @@ class DataZip(ZipFile):
         ("builtins", "complex", None): lambda _, obj: complex(*obj["items"]),
     }
 
-    def _encode(self, name, item) -> JSONABLE:
+    def _encode(self, name, item: Any) -> JSONABLE:
         """Entry point for encoding anything."""
         if encoder := self.ENCODERS.get(type(item), None):
             return encoder(self, name, item)
@@ -897,7 +878,7 @@ class DataZip(ZipFile):
 
         return attrs
 
-    def _json_get(self, *args):
+    def _json_get(self, *args) -> dict:
         for arg in args:
             try:
                 return json.loads(self.read(f"{arg}.json"))

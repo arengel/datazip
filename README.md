@@ -2,12 +2,10 @@
 [![Actions status]( https://github.com/arengel/datazip/workflows/CI/badge.svg)](https://github.com/arengel/datazip/actions)
 [![GitHub Pages Status]( https://github.com/arengel/datazip/workflows/docs/badge.svg)](https://arengel.github.io/datazip/)
 [![PyPI Latest Release](https://img.shields.io/pypi/v/datazip.svg)](https://pypi.org/project/datazip/)
-![[GitHub License](https://github.com/arengel/datazip/blob/main/LICENSE)](https://img.shields.io/github/license/arengel/datazip)
+[![GitHub License](https://img.shields.io/github/license/arengel/datazip.svg)](https://github.com/arengel/datazip/blob/main/LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv
 )
-
-
 
 **DataZip** is a Python library that extends [`zipfile.ZipFile`](https://docs.python.org/3/library/zipfile.html#zipfile.ZipFile) to provide seamless serialization and deserialization of complex Python objects — a more portable and readable alternative to pickle for data science workflows.
 
