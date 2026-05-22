@@ -36,7 +36,7 @@ dev = [
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.0",
-    "mkdocstrings[python]>=0.24",
+    "mkdocstrings[python]>=1.0.4",
     "matplotlib>=3.7",
 ]
 polars = [ "polars>=0.20" ]
