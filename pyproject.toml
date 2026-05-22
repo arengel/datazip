@@ -37,7 +37,7 @@ docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.0",
     "mkdocstrings[python]>=0.24",
-    "matplotlib>=3.7",
+    "matplotlib>=3.10.9",
 ]
 polars = [ "polars>=0.20" ]
 pandas = [ "pandas>=2.0", "pyarrow>=9" ]
