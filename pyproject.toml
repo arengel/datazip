@@ -41,8 +41,9 @@ docs = [
 ]
 polars = [ "polars>=0.20" ]
 pandas = [ "pandas>=2.0", "pyarrow>=9" ]
+xarray = [ "xarray", "h5py", "scipy" ]
 plotly = [ "plotly>5.10" ]
-optional = [ "datazip[polars,pandas,plotly]" ]
+optional = [ "datazip[polars,pandas,plotly,xarray]" ]
 
 [tool.hatch.version]
 source = "vcs"

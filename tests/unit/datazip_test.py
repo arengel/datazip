@@ -17,6 +17,7 @@ from datazip.core import DataZip, default_getstate, default_setstate
 from tests._optional import numpy as np
 from tests._optional import pandas as pd
 from tests._optional import polars as pl
+from tests._optional import xarray as xr
 from tests._test_classes import (
     ObjMeta,
     _KlassSlots,
@@ -178,20 +179,20 @@ def test_sqlalchemy(temp_dir):
             marks=[
                 pytest.mark.xfail,
                 pytest.mark.skipif(
-                    importlib.util.find_spec("numpy") is None,
+                    importlib.util.find_spec("numpy") is None,  # ty:ignore[possibly-missing-submodule]
                     reason="numpy not installed",
                 ),
             ],
         ),
         ("namedtuple_nested", [(ObjMeta("this", "that"), 5), 4, (1, 2)]),
         ("namedtuple_as_key", {ObjMeta("this", "that"): 5}),
-        ("namedtuple_as_key_in_dd", defaultdict(list, {ObjMeta("this", "that"): 5})),
+        ("namedtuple_as_key_in_dd", defaultdict(list, {ObjMeta("this", "that"): 5})),  # ty:ignore[no-matching-overload]
         ("namedtuple", ObjMeta("this", "that")),
         pytest.param(
             "np.array",
             np.array([[0.0, 4.1], [3.2, 2.1]]),
             marks=pytest.mark.skipif(
-                importlib.util.find_spec("numpy") is None,
+                importlib.util.find_spec("numpy") is None,  # ty:ignore[possibly-missing-submodule]
                 reason="numpy not installed",
             ),
         ),
@@ -214,7 +215,7 @@ def test_sqlalchemy(temp_dir):
             "plDataFrame",
             pl.DataFrame({"a": [1, 2, 3]}),
             marks=pytest.mark.skipif(
-                importlib.util.find_spec("polars") is None,
+                importlib.util.find_spec("polars") is None,  # ty:ignore[possibly-missing-submodule]
                 reason="polars not installed",
             ),
         ),
@@ -222,7 +223,7 @@ def test_sqlalchemy(temp_dir):
             "plLazyFrame",
             pl.LazyFrame({"a": [1, 2, 3]}),
             marks=pytest.mark.skipif(
-                importlib.util.find_spec("polars") is None,
+                importlib.util.find_spec("polars") is None,  # ty:ignore[possibly-missing-submodule]
                 reason="polars not installed",
             ),
         ),
@@ -230,7 +231,22 @@ def test_sqlalchemy(temp_dir):
             "plSeries",
             pl.Series([1, 2, 3]),
             marks=pytest.mark.skipif(
-                importlib.util.find_spec("polars") is None,
+                importlib.util.find_spec("polars") is None,  # ty:ignore[possibly-missing-submodule]
+                reason="polars not installed",
+            ),
+        ),
+        pytest.param(
+            "xrDataset",
+            xr.Dataset(
+                {"foo": (("x", "y"), np.random.rand(4, 5))},
+                coords={
+                    "x": [10, 20, 30, 40],
+                    "y": pd.date_range("2000-01-01", periods=5),
+                    "z": ("x", list("abcd")),
+                },
+            ),
+            marks=pytest.mark.skipif(
+                importlib.util.find_spec("xarray") is None,  # ty:ignore[possibly-missing-submodule]
                 reason="polars not installed",
             ),
         ),
@@ -275,7 +291,7 @@ def test_replace(temp_dir, save_old):
 def test_replace_buffer_error():
     """Test that supplying one buffer produces an error."""
     with pytest.raises(TypeError):
-        DataZip.replace(BytesIO())
+        DataZip.replace(BytesIO())  # ty:ignore[invalid-argument-type]
 
 
 def test_deep_access(temp_dir):
@@ -360,7 +376,8 @@ def test_load_no_dump(temp_dir):
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("pandas") is None, reason="pandas not installed"
+    importlib.util.find_spec("pandas") is None,
+    reason="pandas not installed",  # ty:ignore[possibly-missing-submodule]
 )
 class TestWPandas:
     """Tests that involve pandas.
@@ -389,9 +406,9 @@ class TestWPandas:
             raise AssertionError("Something broke") from exc
         else:
             with pytest.raises(ValueError):
-                _ = DataZip(file, "a")
+                _ = DataZip(file, "a")  # ty:ignore[invalid-argument-type]
             with pytest.raises(ValueError):
-                _ = DataZip(file, "x")
+                _ = DataZip(file, "x")  # ty:ignore[invalid-argument-type]
             with pytest.raises(FileExistsError):
                 _ = DataZip(file, "w")
             with DataZip(file, "w", clobber=True) as z4:

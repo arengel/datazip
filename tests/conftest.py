@@ -104,7 +104,7 @@ def test_dir() -> Path:
 
 
 @pytest.fixture(scope="session")
-def temp_dir(test_dir) -> Path:
+def temp_dir(test_dir) -> Path:  # ty:ignore[invalid-return-type]
     """Return the path to a temp directory that gets deleted on teardown."""
     out = test_dir / "temp"
     if out.exists():

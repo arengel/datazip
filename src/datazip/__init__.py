@@ -90,7 +90,9 @@ try:
         return pd.read_parquet(BytesIO(z.read(obj["__loc__"])))
 
     def _decode_pd_series(z: DataZip, obj: dict) -> pd.Series:
-        out: pd.Series = pd.read_parquet(BytesIO(z.read(obj["__loc__"]))).squeeze()
+        out: pd.Series = pd.Series(
+            pd.read_parquet(BytesIO(z.read(obj["__loc__"]))).squeeze()
+        )
         cols, _names = obj.get("no_pqt_cols", (None, None))
         out.name = tuple(cols) if isinstance(cols, list) else cols
         return out
@@ -138,7 +140,7 @@ try:
         """Write a polars df in the ZIP as parquet."""
         if z._ids_for_dedup and (loc := z._ids.get((id(df), type(df)), None)):
             return {"__type__": "plLazyFrame", "__loc__": loc}
-        df.collect().write_parquet(temp := BytesIO())
+        df.collect().write_parquet(temp := BytesIO())  # ty:ignore[unresolved-attribute]
         return {
             "__type__": "plLazyFrame",
             "__loc__": z.encode_loc_helper(f"{name}.parquet", df, temp.getvalue()),
@@ -211,7 +213,7 @@ except (ModuleNotFoundError, ImportError):
 
 
 try:
-    import sqlalchemy as sa
+    import sqlalchemy as sa  # ty:ignore[unresolved-import]
 
     DataZip.register_coders(
         sa.engine.Engine,
@@ -223,5 +225,30 @@ try:
 except (ModuleNotFoundError, ImportError):
     pass
 
+
+try:
+    import xarray as xr
+
+    def _encode_xrdataset(z: DataZip, name: str, data: xr.Dataset, **kwargs) -> dict:
+        if z._ids_for_dedup and (loc := z._ids.get((id(data), type(data)), None)):
+            return {"__type__": "xrDataset", "__loc__": loc}
+        return {
+            "__type__": "xrDataset",
+            "__loc__": z.encode_loc_helper(f"{name}.nc", data, data.to_netcdf()),
+        }
+
+    def _decode_xrdataset(z: DataZip, obj) -> xr.Dataset:
+        return xr.open_dataset(BytesIO(z.read(obj["__loc__"]))).load()
+
+    DataZip.register_coders(
+        xr.Dataset,
+        "xrDataset",
+        _encode_xrdataset,
+        partial(_decode_cache_helper, func=_decode_xrdataset),
+    )
+
+
+except (ModuleNotFoundError, ImportError):
+    pass
 
 __all__ = ["DataZip", "IOMixin", "__version__"]

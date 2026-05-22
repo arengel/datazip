@@ -41,14 +41,14 @@ with DataZip(buffer, "r") as z:
 
 ## Supported Types
 
-| Category | Types                                                                                                                         |
-|---|-------------------------------------------------------------------------------------------------------------------------------|
-| Primitives | `str`, `int`, `float`, `bool`, `None`, `complex`                                                                              |
-| Collections | `dict`, `list`, `tuple`, `set`, `frozenset`, `deque`, `defaultdict`                                                           |
-| Date/Time | `datetime`, `pandas.Timestamp`                                                                                                |
-| Paths | `pathlib.Path`                                                                                                                | |
-| Custom | Any class with `__getstate__`/`__setstate__`                                                                                  |
-| Optional | `numpy.ndarray`, `pandas.DataFrame`, `pandas.Series`, `polars.DataFrame`, `polars.LazyFrame`, `polars.Series`, Plotly figures |
+| Category | Types                                                                                                                                           |
+|---|-------------------------------------------------------------------------------------------------------------------------------------------------|
+| Primitives | `str`, `int`, `float`, `bool`, `None`, `complex`                                                                                                |
+| Collections | `dict`, `list`, `tuple`, `set`, `frozenset`, `deque`, `defaultdict`                                                                             |
+| Date/Time | `datetime`, `pandas.Timestamp`                                                                                                                  |
+| Paths | `pathlib.Path`                                                                                                                                  | |
+| Custom | Any class with `__getstate__`/`__setstate__`                                                                                                    |
+| Optional | `numpy.ndarray`, `pandas.DataFrame`, `pandas.Series`, `polars.DataFrame`, `polars.LazyFrame`, `polars.Series`, `xarray.Dataset`, Plotly figures |
 
 # Installation
 

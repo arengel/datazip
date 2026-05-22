@@ -20,7 +20,7 @@ class MT(metaclass=Meta):
 
 
 try:
-    import sqlalchemy
+    import sqlalchemy  # ty:ignore[unresolved-import]
 except (ModuleNotFoundError, ImportError):
 
     class sqlalchemy(MT):  # noqa: N801
@@ -71,5 +71,16 @@ except (ModuleNotFoundError, ImportError):
 
     class polars(MT):  # noqa: N801
         """Dummy for when polars is not installed."""
+
+        pass
+
+
+try:
+    import xarray
+
+except (ModuleNotFoundError, ImportError):
+
+    class xarray(MT):  # noqa: N801
+        """Dummy for when xarray is not installed."""
 
         pass

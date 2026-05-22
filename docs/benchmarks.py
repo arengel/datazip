@@ -14,7 +14,7 @@ import pickle
 import time
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # ty:ignore[unresolved-import]
 import numpy as np
 import pandas as pd
 

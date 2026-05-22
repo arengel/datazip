@@ -12,7 +12,7 @@ from functools import partial
 from importlib import import_module
 from pathlib import Path, PosixPath, WindowsPath
 from types import NoneType
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self
 from zipfile import ZipFile
 from zoneinfo import ZoneInfo
 
@@ -42,7 +42,7 @@ def _get_version(obj: Any) -> str:
     return "unknown"
 
 
-def _get_username():
+def _get_username() -> str:
     try:
         return getpass.getuser()
     except (ModuleNotFoundError, OSError) as exc0:
@@ -59,12 +59,12 @@ def _objinfo(obj: Any) -> str:
     return obj.__class__.__module__ + "|" + obj.__class__.__qualname__
 
 
-def _get_klass(mod_klass: str | list | tuple):
+def _get_klass(mod_klass: str | list | tuple) -> type:
 
     if isinstance(mod_klass, str):
         mod_klass = mod_klass.split("|")
+    mod, qname, *_ = mod_klass
     try:
-        mod, qname, *_ = mod_klass
         klass: type = getattr(import_module(mod), qname)
     except (AttributeError, ModuleNotFoundError) as exc:
         raise ImportError(f"Unable to import {qname} from {mod}.") from exc
@@ -72,7 +72,7 @@ def _get_klass(mod_klass: str | list | tuple):
         return klass
 
 
-def default_setstate(obj, state):
+def default_setstate(obj: Any, state: dict | tuple[dict | None, dict]) -> None:
     """Called if no `__setstate__` implementation."""
     if state is None:
         pass
@@ -86,7 +86,7 @@ def default_setstate(obj, state):
             setattr(obj, k, v)
 
 
-def default_getstate(obj):
+def default_getstate(obj: Any) -> tuple[dict | None, dict] | dict | None:
     """Called if no `__getstate__` implementation."""
 
     def slots_dict(_slots):
@@ -118,7 +118,7 @@ def _decode_cache_helper(z: DataZip, obj: dict, func: Callable, **kwargs) -> Any
     return out
 
 
-def _encode_ignore(z: DataZip, name: str, item):
+def _encode_ignore(z: DataZip, name: str, item) -> str:
     LOGGER.warning("%s of type %s will not be encoded", name, type(item))
     return "__IGNORE__"
 
@@ -225,7 +225,8 @@ class DataZip(ZipFile):
                     )
 
         super().__init__(file, mode, *args, **kwargs)
-        self._attributes, self._metadata = {"__state__": {}}, {"__rev__": 2}
+        self._attributes: dict[str, Any] = {"__state__": {}}
+        self._metadata: dict[str, Any] = {"__rev__": 2}
         self._ids_for_dedup = ids_for_dedup
         self._ids, self._red = {}, {}
         if mode == "r":
@@ -588,7 +589,9 @@ class DataZip(ZipFile):
             if alt_name is not None:
                 cls.DECODERS[alt_name] = decoder
 
-    def encode_loc_helper(self, name: str, data: Any, to_write: bytes) -> str:
+    def encode_loc_helper(
+        self, name: str, data: Any, to_write: bytes | memoryview
+    ) -> str:
         """Write raw bytes to the zip under a unique name and record dedup info.
 
         This is the low-level helper that custom encoders call to attach a
@@ -653,7 +656,7 @@ class DataZip(ZipFile):
         self._ids[(id(data), type(data))] = new_name
         return new_name
 
-    def _decode(self, obj: Any) -> Any:
+    def _decode(self, obj: JSONABLE) -> Any:
         """Entry point for decoding anything."""
         if decoder := self.DECODERS.get(type(obj), None):
             return decoder(self, obj)
@@ -665,19 +668,19 @@ class DataZip(ZipFile):
         return {k: self._decode(v) for k, v in obj.items()}
 
     @staticmethod
-    def _decode_namedtuple(_, obj: dict):
+    def _decode_namedtuple(_, obj: dict) -> tuple:
         try:
             return _get_klass(obj["objinfo"])(**obj["items"])
         except Exception as exc:
             LOGGER.error("Namedtuple will be returned as a normal tuple, %r", exc)
             return tuple(obj["items"].values())
 
-    def _decode_obj(self, obj: dict, klass=None) -> Any:
+    def _decode_obj(self, obj: dict, klass: type | None = None) -> Any:
         if obj["__loc__"] in self._red:
             return self._red[obj["__loc__"]]
         if klass is None:
             klass = _get_klass(obj["__type__"].split("|"))
-        out_obj = klass.__new__(klass)
+        out_obj = klass.__new__(klass)  # ty:ignore[no-matching-overload]
         state = self._decode(self._attributes["__state__"][str(obj["__loc__"])])
         # we cannot use hasattr here in case __getattr__ is defined and it throws
         # non-AttributeErrors if the object is not yet fully initialized
@@ -690,7 +693,7 @@ class DataZip(ZipFile):
         self._red[str(obj["__loc__"])] = out_obj
         return out_obj
 
-    DECODERS: ClassVar[dict[type | str | tuple, Callable]] = {
+    DECODERS: ClassVar[dict[type | str | tuple, Callable[[Self, Any], Any]]] = {
         str: lambda _, item: item,
         int: lambda _, item: item,
         bool: lambda _, item: item,
@@ -777,7 +780,7 @@ class DataZip(ZipFile):
             "__file_created__": str(datetime.now(tz=ZoneInfo("UTC"))),
         }
 
-    ENCODERS: ClassVar[dict[type, Callable]] = {
+    ENCODERS: ClassVar[dict[type, Callable[[Self, str, Any], JSONABLE]]] = {
         str: lambda _, __, item: item,
         int: lambda _, __, item: item,
         bool: lambda _, __, item: item,
@@ -801,7 +804,7 @@ class DataZip(ZipFile):
             "__type__": "complex",
             "items": [item.real, item.imag],
         },
-        type: lambda self, __, item: {
+        type: lambda _, __, item: {
             "__type__": "type",
             "items": [item.__module__, item.__qualname__],
         },
@@ -831,7 +834,7 @@ class DataZip(ZipFile):
     }
 
     def _load_legacy_helper(self) -> dict:
-        obj_meta = self._metadata.get("obj_meta", self._json_get("obj_meta"))
+        obj_meta: dict = self._metadata.get("obj_meta", self._json_get("obj_meta"))
         locs = []
 
         def _make_attr_entry(k_, locs_):
